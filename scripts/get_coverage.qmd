@@ -1,0 +1,79 @@
+---
+title: "Coverage Metrics"
+author: "Payel Sardar"
+format: 
+  pdf:
+    pdf-engine: xelatex  # Use XeLaTeX for better support
+    keep-tex: true       # Keep the intermediate .tex file for debugging
+    include-in-header:
+      text: |
+        \usepackage{listings}
+        \lstset{
+          basicstyle=\ttfamily\small,  % Font style
+          breaklines=true,             % Enable line wrapping
+          breakatwhitespace=true,      % Break lines at whitespaces
+          frame=single,                % Add a frame around code blocks
+          prebreak=\raisebox{0ex}[0ex][0ex]{\ensuremath{\hookleftarrow}}, % Indicate broken lines
+          postbreak=\raisebox{0ex}[0ex][0ex]{\ensuremath{\hookrightarrow}}
+        }
+---
+
+Setting the home working directory.
+```{r}
+setwd("D:/KCL2024/Courses/7BBG1002_Cloud_computing/Project")
+```
+
+Reading the csv file that contains the total number of reads(sequences) per sample. This file was made from the fastqc reports of raw reads before any pre-processing
+```{r}
+library_size_info <- read.csv("../metadata/sample_library_size.csv", 
+                              sep = ",", header = TRUE)
+library_size_info
+```
+Computing the Average library size of the samples
+```{r}
+avg_lib_size <- mean(library_size_info$Total_Sequences, na.rm = TRUE)
+print(avg_lib_size)
+```
+From the FastQC report, the average raw read length across all samples was determined to be 50 bp. After pre-processing with Trimmomatic, the average read length was reduced to 35 bp.
+```{r}
+raw_avg_read_len <- 50
+read_len_post_trim <- 35
+```
+
+Getting the length of the reference genome using the Biostrings package from BiocManager
+```{r}
+library(Biostrings)
+
+# Loading the reference genome FASTA
+genome <- readDNAStringSet("../data/raw/ncbi_dataset/data/GCF_000146045.2/genome.fa")
+
+# Calculating the total genome length
+ref_genome_length <- sum(width(genome))
+
+cat("Total genome length:", ref_genome_length, "bp\n")
+```
+
+Computing the coverage before and after pre-processing
+```{r}
+raw_coverage <- (avg_lib_size * raw_avg_read_len)/ref_genome_length
+coverage_post_trim <- (avg_lib_size * read_len_post_trim)/ref_genome_length
+
+cat("Raw coverage:", raw_coverage, "\n")
+cat("Coverage post-trim:", coverage_post_trim, "\n")
+```
+However, the original study reported the coverage to be 156-fold. Since no-preprocessing on the sample datasets were performed, we assume the reported value to be raw coverage. 
+```{r}
+reported_coverage <- 156
+
+# Calculating the absolute difference
+abs_difference <- abs(raw_coverage - reported_coverage)
+
+# Calculating the percentage difference
+percentage_difference <- (abs_difference / reported_coverage) * 100
+
+# Printing the results
+cat("Absolute difference:", abs_difference, "fold\n")
+cat("Percentage difference:", percentage_difference, "%\n")
+```
+
+

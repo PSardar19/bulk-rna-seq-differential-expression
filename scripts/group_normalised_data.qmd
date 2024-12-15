@@ -1,0 +1,151 @@
+---
+title: "Normalisation Quality Control"
+author: "Payel Sardar"
+format: 
+  pdf:
+    pdf-engine: xelatex  # Use XeLaTeX for better support
+    keep-tex: true       # Keep the intermediate .tex file for debugging
+    include-in-header:
+      text: |
+        \usepackage{listings}
+        \lstset{
+          basicstyle=\ttfamily\small,  % Font style
+          breaklines=true,             % Enable line wrapping
+          breakatwhitespace=true,      % Break lines at whitespaces
+          frame=single,                % Add a frame around code blocks
+          prebreak=\raisebox{0ex}[0ex][0ex]{\ensuremath{\hookleftarrow}}, % Indicate broken lines
+          postbreak=\raisebox{0ex}[0ex][0ex]{\ensuremath{\hookrightarrow}}
+        }
+---
+
+# Description
+This script takes in individual normalised files and merges then into a unified dataset. A Box plot is then created to check if the samples for corresponding carbon source (glucose and cellobiose) get clustered together.
+
+### Setting the home working directory.
+```{r}
+setwd("D:/KCL2024/Courses/7BBG1002_Cloud_computing/Project")
+```
+
+### Loading necessary packages
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+```
+
+### Reading the file on sample information
+```{r}
+sample_info <- read.csv("../metadata/sample_types.csv", 
+                        sep = ",", header = TRUE)
+head(sample_info)
+```
+
+Next, the sample_ids(Run) for each carbon_source is extracted
+```{r}
+glucose_samples <- sample_info %>% 
+  filter(carbon_source == "Glucose") %>% 
+  pull(Run)
+cellobiose_samples <- sample_info %>% 
+  filter(carbon_source == "Cellobiose") %>% 
+  pull(Run)
+```
+
+The function below reads multiple normalized RPKM files (in CSV format) for a set of sample IDs corresponding to a particular carbon_source, extracts the first column (Geneid) and the last column (normalized_rpkm) from each file, and merges the data frames by the Geneid column to create a combined dataset.
+```{r}
+group_samples <- function(sample_ids, prefix = "normalized_", 
+                          folder = "../data/processed/Normalized_data/") {
+  
+  # Initializing an empty list to store data
+  data_list <- list()
+  
+  for (sample_id in sample_ids) {
+    
+    file_name <- paste0(folder, prefix, sample_id, ".csv")
+    
+    # Reading the normalized file
+    data <- read.csv(file_name)
+    
+    # Extracting the first column(Geneid) and the last column(normalized_rpkm)
+    data_subset <- data[, c(1, ncol(data))]  
+    
+    # Renaming the last column to the sample ID for identification
+    colnames(data_subset)[2] <- sample_id
+    
+    # Appending the file data the list
+    data_list[[sample_id]] <- data_subset
+  }
+  
+  # Merging all data frames by "gene_id"
+  merged_data <- Reduce(function(x, y) full_join(x, y, by = "Geneid"), data_list)
+  
+  return(merged_data)
+}
+```
+
+Applying the function for glucose and cellobiose Samples
+```{r}
+glucose_data <- group_samples(glucose_samples)
+cellobiose_data <- group_samples(cellobiose_samples)
+```
+
+Veiwing the merged datasets
+```{r}
+head(glucose_data)
+head(cellobiose_data)
+```
+
+
+Saving the merged dataframes as CSV files in the Normalized_data folder for downstream processing
+```{r}
+write.csv(glucose_data, "../data/processed/Normalized_data/glucose_merged.csv", row.names = FALSE)
+write.csv(cellobiose_data, "../data/processed/Normalized_data/cellobiose_merged.csv", row.names = FALSE)
+```
+
+Merging the two datasets for visualisation 
+```{r}
+merged_norm_rpkm <- merge(glucose_data, cellobiose_data, 
+                          by.x = "Geneid", by.y = "Geneid")
+write.csv(merged_norm_rpkm, "../data/processed/Normalized_data/CombinedNF.csv", row.names = FALSE)
+```
+
+```{r}
+# Removing gene_id column
+merged_data_numeric <- merged_norm_rpkm[, -1]
+# Setting gene IDs as row names
+row.names(merged_data_numeric) <- merged_norm_rpkm$Geneid  
+
+head(merged_data_numeric)
+```
+
+Preparing the Data for making the Box plot
+```{r}
+data_long <- pivot_longer(merged_data_numeric, 
+                          cols = everything(),  
+                          names_to = "Sample",   
+                          values_to = "Norm_RPKM")
+data_long$log2_norm_rpkm <- log2(data_long$Norm_RPKM + 0.001) # to avoid log2(0)
+
+sample_conditions <- c(rep("Glucose", 3), rep("Cellobiose", 3))
+
+data_long$Condition <- 
+  rep(sample_conditions, times = nrow(data_long)/length(sample_conditions))
+
+head(data_long)
+```
+
+### Creating the box plots
+```{r}
+plot <- ggplot(data_long, aes(x = Sample, y = log2_norm_rpkm, fill = Condition)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Boxplots of Normalized RPKM by Sample and Condition", 
+       x = "Sample", y = "log2(Normalized RPKM)")
+print(plot)
+```
+
+Saving the plot as an image
+```{r}
+ggsave("../Output/plots/boxplot_rpkm_comparison.jpg", 
+       plot = plot, width = 10, height = 6, dpi = 300)
+```
+
